@@ -1,0 +1,24 @@
+## ~4401~ Done setting up Control Logger.
+## ~4401~ Configured log type: None
+## ~4401~ Initialised control messaging queue "AMI_CTL".
+No handlers could be found for logger "AmiPAL"
+## ~4401~ Connecting to Asterisk manager: 127.0.0.2:5038
+## ~4401~ Connected.
+## ~4401~ Spawned _soc_reader
+## ~4401~ Spawned _soc_writer
+## ~4401~ Spawned _ctl_dispatch
+
+Received new AMI Event:
+<class 'AmiPAL.AmiReg.AmiEvent'>
+OrderedDict([('Asterisk Call Manager/1.1', None), ('Response', 'Success'), ('ActionID', '2016-01-15T23:03:55.415517'), ('Message', 'Authentication accepted')])
+({'Asterisk Call Manager/1.1': None}, {'Response': 'Success'}, {'ActionID': '2016-01-15T23:03:55.415517'}, {'Message': 'Authentication accepted'})
+(('Asterisk Call Manager/1.1', None), ('Response', 'Success'), ('ActionID', '2016-01-15T23:03:55.415517'), ('Message', 'Authentication accepted'))
+
+Received new AMI Event:
+<class 'AmiPAL.AmiReg.AmiEvent'>
+OrderedDict([('Event', 'FullyBooted'), ('Privilege', 'system,all'), ('Status', 'Fully Booted')])
+({'Event': 'FullyBooted'}, {'Privilege': 'system,all'}, {'Status': 'Fully Booted'})
+(('Event', 'FullyBooted'), ('Privilege', 'system,all'), ('Status', 'Fully Booted'))
+^CKeyboardInterrupt
+## ~4401~ Killing I/O workers softly: 2016-01-15T23:03:58.399609
+## ~4401~ Terminating connection: 127.0.0.2:5038

@@ -1,0 +1,25 @@
+## ~3270~ Initialised control messaging queue "AMI_CTL".
+## ~3270~ Connecting to Asterisk manager: 127.0.0.2:5038
+## ~3270~ Connected.
+## ~3270~ [ Sending to AMI   91 bytes -- 2016-01-15T21:43:54.830810 ]:
+Action: Login
+ActionID: 2016-01-15T21:43:54.818790
+Username: ami
+Secret: QoDbwCYounN
+
+
+## ~3270~ [ Received from AMI   27 bytes -- 2016-01-15T21:43:54.863618 ]:
+Asterisk Call Manager/1.1
+
+## ~3270~ [ Received from AMI  160 bytes -- 2016-01-15T21:43:54.928012 ]:
+Response: Success
+ActionID: 2016-01-15T21:43:54.818790
+Message: Authentication accepted
+
+Event: FullyBooted
+Privilege: system,all
+Status: Fully Booted
+
+
+## ~3270~ Killing I/O workers softly: 2016-01-15T21:43:57.268289
+## ~3270~ Terminating connection: 127.0.0.2:5038

@@ -1,120 +1,107 @@
 #!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 """
-Created on Tue Sep 22 15:01:27 2015
+# AMI built-in Commands (Actions).
 
-@author: Narunas K.
+## Part of the AmiPAL project ~:~ https://github.com/narunask/AmiPAL
 
-Part of the AmiPAL project :-: https://github.com/narunask/AmiPAL
+Redistribution and use in source and binary forms, with or without modification, are permitted
+provided that the following conditions are met:
 
-LICENSE :-: BSD 3-Clause License :-: https://opensource.org/licenses/BSD-3-Clause
+1. Redistributions of source code must retain the above copyright notice, this list of conditions
+   and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice, this list of
+   conditions and the following disclaimer in the documentation and/or other materials provided
+   with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its contributors may be used to
+   endorse or promote products derived from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
+CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF
+USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
+ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+Copyright (c) 2016 Narunas K. All rights reserved.
 """
-
-import gevent
-from operator import itemgetter as ig
 
 ## Ami Controller
 from AmiCtl import AmiCtl
+
+# Main Ami event registry class
+from AmiReg import AmiReg
+
+
+
+class EventParser(AmiReg):
+    """
+    Customized Ami event registry.
+    """
+    def __init__(self, *a, **kw):
+        super(EventParser, self).__init__(*a, **kw)
+
+    def onEvent(self, event):
+        if event.od.get('Event') not in ['VarSet','RTCPSent','RTCPReceived']:
+            print "~ # ~"
 
 
 class AmiCmd(AmiCtl):
     """
     AMI built-in Commands (Actions).
     """
+    # Cache for commands that return list
+    _cache = {}
+    # List of Command IDs waiting for response
+    _pending = set()
+    # End event headers of the commands that return list
+    _evend = {"RegistrationsComplete", "PeerlistComplete",
+              "ParkedCallsComplete", "AgentsComplete",
+              "StatusComplete", "ShowDialPlanComplete",
+              "CoreShowChannelsComplete"}
+
     def __init__(self, **kwargs):
-        """Send various AMI queries"""
         super(AmiCmd, self).__init__(**kwargs)
         # Response timeout between retries
         self._sec_towait = 1
         self._re_timeout = .2
+        # Stream to python object parser
+        self.parser = AmiReg()
 
-    def _response(self, id=None, evend=None, wait=None):
-        """
-        Wait for the Ami response sec_towait seconds, retrying every re_timeout seconds.
-        """
-        if not id:
-            raise ValueError("<_response> Err: Id cannot be be blank")
-        sec_towait = self._sec_towait
-        re_timeout = self._re_timeout
-        while True:
-            reg = self.reg.by_value(str(id))
-            # If we expect a list in the response - check if we've got full list
-            if evend and len([item.d[0] for item in reg for i in item if any([i.a=="Response", i.v==evend])])==2:
-                return reg
-            # Else if there's a response return regardles if it's an error or a full response
-            elif not evend and len([item.d[0] for item in reg for i in item if i.a=="Response"])==1:
-                return reg
-            else:
-                if sec_towait >= 0:
-                    gevent.sleep(re_timeout)
-                else: break
-            sec_towait -= re_timeout
 
-    def scalls(self):
+    def reactor(self, recv, *a, **kw):
         """
-        Find started calls. SubEvent: Begin
+        React, when data is received.
         """
-        fi = lambda x: x[0] if len(x)!=0 else []  # First item otherwise empty list
-        scalls = []
-        for devent in self.reg.get_events().get('Dial',[]):
-            if devent.od.get('SubEvent') == 'Begin':
-                suniq = devent.od.get('UniqueID')
-                duniq = devent.od.get('DestUniqueID')
-                srcid = devent.od.get('CallerIDNum')
-                dstid = devent.od.get('Dialstring')
-                newch = fi(self.reg.by_value(suniq, evt="Newchannel"))
-                srcex = newch.od.get('CallerIDNum') if newch else ""
-                dstex = newch.od.get('Exten') if newch else ""
-                scalls.append((suniq, duniq, srcid, dstid, srcex, dstex))
-        return scalls
+        cache = self._cache
+        pending = self._pending
+        evend = self._evend
+        # Feed data to parser
+        self.parser.feed(recv)
+        for event in self.parser.events:
+            # Event as OrderedDict
+            od = event.od
+            # Command ID
+            cid = od.get("ActionID")
 
-    def ecalls(self):
-        """
-        Find ended calls. SubEvent: End
-        """
-        return [(e.od.get('UniqueID'), e.od.get('DialStatus')) \
-                for e in self.reg.get_events().get('Dial',[]) if e.od.get('SubEvent') == 'End']
+            if od.get("Event") in evend and cid in pending and cid in cache:
+                for x in cache[cid]:
+                    print x
+                print
+                del cache[cid]
+                pending.discard(cid)
+            elif cid in pending and cid in cache:
+                cache[cid].append(event.od)
+            elif od.get("Response")=="Success" and cid in pending and cid not in cache:
+                for x in event.d:
+                    print x
+                print
+                self._pending.discard(cid)
 
-    def secalls(self):
-        """
-        Find calls which have started and now are ended.
-        """
-        uniqid = ig(0)
-        fi = lambda x: x[0] if len(x)!=0 else []  # First item otherwise empty list
-        scalls = self.scalls()
-        ecalls = self.ecalls()
-        sc = map(uniqid, scalls)
-        ec = map(uniqid, ecalls)
-        se = [x for x in sc if x in ec]
-        #return [set(fi([sx for sx in scalls if uniqid(sx)==x]) + fi([ex for ex in ecalls if uniqid(ex)==x])) for x in se]
-        #sc[0] + tuple(x for x in ec[0] if x not in sc[0])
-        secalls = []
-        for x in se:
-            fsx = fi([sx for sx in scalls if uniqid(sx)==x])
-            fex = fi([ex for ex in ecalls if uniqid(ex)==x])
-            secalls.append(fsx + tuple([i for i in fex if i not in fsx]))
-        return secalls
-
-    def lcalls(self):
-        """
-        Find live calls. Started but yet not ended.
-        """
-        uniqid = ig(0)
-        scalls = self.scalls()
-        ecalls = self.ecalls()
-        sc = map(uniqid, scalls)
-        ec = map(uniqid, ecalls)
-        lc = [x for x in sc if x not in ec]
-        return [ s for l in lc for s in scalls if uniqid(s)==l]
-
-    @staticmethod
-    def evid_sort(lst=None):
-        """
-        Sort by areg_evid field.
-        """
-        if not lst or not isinstance(lst, (list, tuple)):
-            raise ValueError("Supplied argument must be list or tuple!")
-        return sorted(lst, key=lambda x: x.od.get("areg_evid"))
 
     def __query(self, action, required, optional, a, kw, evend=None):
         """
@@ -124,9 +111,9 @@ class AmiCmd(AmiCtl):
         # If there are required args and none are supplied via 'a' or 'kw'
         if required and not any([a, kw]):
             raise ValueError("Err :-: Please supply all required arguments: (%s)" % ', '.join(required))
-        if self._soc:
+        if self.soc.connected:
             if all([a,kw]): return  # disallow argument mixing
-            # Positional arguments can only be used for the required args input if any
+            # Positional arguments can only be used for the required args input if there are any
             if a and len(a) == len(required):
                 args_ini.update({k: a[required.index(k)] for k in required})
             # Make sure that all required args are supplied via kw, if kw is the input method
@@ -139,52 +126,61 @@ class AmiCmd(AmiCtl):
             args = {k:v for k,v in args_ini.items() if v}
             # Send command to AMI and capture request id
             req_id = self.cmd(action, **args)
-            return self._response(req_id, evend)
+            self._pending.add(req_id)
+            return req_id
 
-    def Ping(self):
+
+    def Ping(self, *a, **kw):
         """
         A 'Ping' action will ellicit a 'Pong' response.
         Used to keep the manager connection open.
         """
         action = "Ping"
-        if self._soc:
+        if self.soc.connected:
             # Send command to AMI and capture request id
             req_id = self.cmd(action)
-            return self._response(req_id)
+            self._pending.add(req_id)
+            return req_id
 
-    def ListCommands(self):
+
+    def ListCommands(self, *a, **kw):
         """
         Returns the action name and synopsis for every action that is
         available to the user.
         """
         action = "ListCommands"
-        if self._soc:
+        if self.soc.connected:
             # Send command to AMI and capture request id
             req_id = self.cmd(action)
-            response = self._response(req_id)
-            return self.evid_sort(response)
+            self._pending.add(req_id)
+            return req_id
 
-    def SIPshowregistry(self):
+
+    def SIPshowregistry(self, *a, **kw):
         """
         Show SIP registrations (text format).
         """
         action = "SIPshowregistry"
-        if self._soc:
+        if self.soc.connected:
             # Send command to AMI and capture request id
             req_id = self.cmd(action)
-            response = self._response(req_id, evend="RegistrationsComplete")
-            return self.evid_sort(response)
+            self._pending.add(req_id)
+            self._cache[req_id] = []
+            return req_id
 
-    def SIPpeers(self):
+
+    def SIPpeers(self, *a, **kw):
         """
         Lists SIP peers in text format with details on current status.
         """
         action = "SIPpeers"
-        if self._soc:
+        if self.soc.connected:
             # Send command to AMI and capture request id
             req_id = self.cmd(action)
-            response = self._response(req_id, evend="PeerlistComplete")
-            return self.evid_sort(response)
+            self._pending.add(req_id)
+            self._cache[req_id] = []
+            return req_id
+
 
     def SIPshowpeer(self, *a, **kw):
         """
@@ -195,8 +191,8 @@ class AmiCmd(AmiCtl):
         action = "SIPshowpeer"
         required = ["Peer"]
         optional = []
-        response = self.__query(action, required, optional, a=a, kw=kw)
-        return self.evid_sort(response)
+        req_id = self.__query(action, required, optional, a=a, kw=kw)
+        return req_id
 
 
     def SIPqualifypeer(self, *a, **kw):
@@ -208,8 +204,9 @@ class AmiCmd(AmiCtl):
         action = "SIPqualifypeer"
         required = ["Peer"]
         optional = []
-        response = self.__query(action, required, optional, a=a, kw=kw)
-        return response
+        req_id = self.__query(action, required, optional, a=a, kw=kw)
+        return req_id
+
 
     def ShowDialPlan(self, *a, **kw):
         """
@@ -222,8 +219,9 @@ class AmiCmd(AmiCtl):
         action = "ShowDialPlan"
         required = []
         optional = ["Extension", "Context"]
-        response = self.__query(action, required, optional, a=a, kw=kw, evend='ShowDialPlanComplete')
-        return self.evid_sort(response)
+        req_id = self.__query(action, required, optional, a=a, kw=kw, evend='ShowDialPlanComplete')
+        self._cache[req_id] = []
+        return req_id
 
 
     def Context(self, *a, **kw):
@@ -233,6 +231,7 @@ class AmiCmd(AmiCtl):
             - Extension: Show a specific extension.
         """
         return sorted({x.od['Context'] for x in self.ShowDialPlan(*a, **kw) if x.od.get('Context')})
+
 
     def Originate(self, *a, **kw):
         """
@@ -262,8 +261,9 @@ class AmiCmd(AmiCtl):
         required = ["Channel"]
         optional = ["Exten", "Context", "Priority", "Application", "Data", "Timeout",
                     "CallerID", "Variable", "Account", "Async", "Codecs"]
-        response = self.__query(action, required, optional, a=a, kw=kw)
-        return response
+        req_id = self.__query(action, required, optional, a=a, kw=kw)
+        return req_id
+
 
     def Hangup(self, *a, **kw):
         """
@@ -277,8 +277,9 @@ class AmiCmd(AmiCtl):
         action = "Hangup"
         required = ["Channel"]
         optional = ["Cause"]
-        response = self.__query(action, required, optional, a=a, kw=kw)
-        return self.evid_sort(response)
+        req_id = self.__query(action, required, optional, a=a, kw=kw)
+        return req_id
+
 
     def Redirect(self, *a, **kw):
         """
@@ -298,8 +299,9 @@ class AmiCmd(AmiCtl):
         action = "Redirect"
         required = ["Channel", "Exten", "Context", "Priority"]
         optional = ["ExtraChannel", "ExtraExten", "ExtraContext", "ExtraPriority"]
-        response = self.__query(action, required, optional, a=a, kw=kw)
-        return self.evid_sort(response)
+        req_id = self.__query(action, required, optional, a=a, kw=kw)
+        return req_id
+
 
     def Atxfer(self, *a, **kw):
         """
@@ -313,8 +315,9 @@ class AmiCmd(AmiCtl):
         action = "Atxfer"
         required = ["Channel", "Exten", "Context", "Priority"]
         optional = []
-        response = self.__query(action, required, optional, a=a, kw=kw)
-        return self.evid_sort(response)
+        req_id = self.__query(action, required, optional, a=a, kw=kw)
+        return req_id
+
 
     def PlayDTMF(self, *a, **kw):
         """
@@ -326,8 +329,9 @@ class AmiCmd(AmiCtl):
         action = "PlayDTMF"
         required = ["Channel", "Digit"]
         optional = []
-        response = self.__query(action, required, optional, a=a, kw=kw)
-        return self.evid_sort(response)
+        req_id = self.__query(action, required, optional, a=a, kw=kw)
+        return req_id
+
 
     def Bridge(self, *a, **kw):
         """
@@ -342,8 +346,9 @@ class AmiCmd(AmiCtl):
         action = "Bridge"
         required = ["Channel1", "Channel2"]
         optional = ["Tone"]
-        response = self.__query(action, required, optional, a=a, kw=kw)
-        return self.evid_sort(response)
+        req_id = self.__query(action, required, optional, a=a, kw=kw)
+        return req_id
+
 
     def Park(self, *a, **kw):
         """
@@ -359,72 +364,83 @@ class AmiCmd(AmiCtl):
         action = "Park"
         required = ["Channel", "Channel2"]
         optional = ["Timeout", "Parkinglot"]
-        response = self.__query(action, required, optional, a=a, kw=kw)
-        return self.evid_sort(response)
+        req_id = self.__query(action, required, optional, a=a, kw=kw)
+        return req_id
 
-    def ParkedCalls(self):
+
+    def ParkedCalls(self, *a, **kw):
         """
         List parked calls.
         """
         action = "ParkedCalls"
-        if self._soc:
+        if self.soc.connected:
             # Send command to AMI and capture request id
             req_id = self.cmd(action)
-            response = self._response(req_id, evend="ParkedCallsComplete")
-            return self.evid_sort(response)
+            self._pending.add(req_id)
+            self._cache[req_id] = []
+            return req_id
 
-    def Queues(self):
+
+    def Queues(self, *a, **kw):
         """
         Show queues information. Check the log for the output
         """
         action = "Queues"
-        if self._soc:
+        if self.soc.connected:
             # Send command to AMI and capture request id
             req_id = self.cmd(action)
+            self._pending.add(req_id)
 
-    def Agents(self):
+
+    def Agents(self, *a, **kw):
         """
         Will list info about all possible agents.
         """
-        if self._soc:
+        if self.soc.connected:
             action = "Agents"
             # Send command to AMI and capture request id
             req_id = self.cmd(action)
-            response =  self._response(req_id, evend="AgentsComplete")
-            return self.evid_sort(response)
+            self._pending.add(req_id)
+            self._cache[req_id] = []
+            return req_id
 
-    def CoreShowChannels(self):
+
+    def CoreShowChannels(self, *a, **kw):
         """
         List currently defined channels and some information about them.
         """
         action = "CoreShowChannels"
-        if self._soc:
+        if self.soc.connected:
             # Send command to AMI and capture request id
             req_id = self.cmd(action)
-            response = self._response(req_id, evend='CoreShowChannelsComplete')
-            return self.evid_sort(response)
+            self._pending.add(req_id)
+            self._cache[req_id] = []
+            return req_id
 
-    def CoreStatus(self):
+
+    def CoreStatus(self, *a, **kw):
         """
         Show PBX core status variables.
         """
         action = "CoreStatus"
-        if self._soc:
+        if self.soc.connected:
             # Send command to AMI and capture request id
             req_id = self.cmd(action)
-            response = self._response(req_id)
-            return self.evid_sort(response)
+            self._pending.add(req_id)
+            return req_id
 
-    def CoreSettings(self):
+
+    def CoreSettings(self, *a, **kw):
         """
         Show PBX core settings (version etc).
         """
         action = "CoreSettings"
-        if self._soc:
+        if self.soc.connected:
             # Send command to AMI and capture request id
             req_id = self.cmd(action)
-            response =  self._response(req_id)
-            return self.evid_sort(response)
+            self._pending.add(req_id)
+            return req_id
+
 
     def Status(self, *a, **kw):
         """
@@ -437,8 +453,10 @@ class AmiCmd(AmiCtl):
         action = "Status"
         required = []
         optional = ["Channel", "Variables"]
-        response = self.__query(action, required, optional, a=a, kw=kw, evend="StatusComplete")
-        return self.evid_sort(response)
+        req_id = self.__query(action, required, optional, a=a, kw=kw, evend="StatusComplete")
+        self._cache[req_id] = []
+        return req_id
+
 
     def GetConfig(self, *a, **kw):
         """
@@ -453,8 +471,9 @@ class AmiCmd(AmiCtl):
         action = "GetConfig"
         required = ["Filename"]
         optional = ["Category"]
-        response = self.__query(action, required, optional, a=a, kw=kw)
-        return self.evid_sort(response)
+        req_id = self.__query(action, required, optional, a=a, kw=kw)
+        return req_id
+
 
     def GetConfigJSON(self, *a, **kw):
         """
@@ -467,17 +486,16 @@ class AmiCmd(AmiCtl):
         action = "GetConfigJSON"
         required = ["Filename"]
         optional = []
-        response = self.__query(action, required, optional, a=a, kw=kw)
-        return self.evid_sort(response)
+        req_id = self.__query(action, required, optional, a=a, kw=kw)
+        return req_id
 
 
 
 if __name__ == "__main__":
-    host = "127.0.0.1"
-    port = 56002
+    host = "127.0.0.2"
+    port = 5038
     usr = "ami"
-    pwd = "secret"
+    pwd = "QoDbwCYounN"
 
     acmd = AmiCmd(host=host, port=port, usr=usr, pwd=pwd)
     acmd.login()
-    acmd.SIPpeers()

@@ -1,0 +1,40 @@
+## ~3861~ Initialised control messaging queue "AMI_CTL".
+## ~3861~ Connecting to Asterisk manager: 127.0.0.2:5038
+## ~3861~ Connected.
+## ~3861~ [ Sending to AMI   91 bytes -- 2016-01-15T22:26:55.914620 ]:
+Action: Login
+ActionID: 2016-01-15T22:26:55.902500
+Username: ami
+Secret: QoDbwCYounN
+
+
+## ~3861~ [ Received from AMI   27 bytes -- 2016-01-15T22:26:55.940948 ]:
+Asterisk Call Manager/1.1
+
+## ~3861~ [ Received from AMI  160 bytes -- 2016-01-15T22:26:56.158750 ]:
+Response: Success
+ActionID: 2016-01-15T22:26:55.902500
+Message: Authentication accepted
+
+Event: FullyBooted
+Privilege: system,all
+Status: Fully Booted
+
+
+## ~3861~ [aid: xQtvfosmBYg2w7YHCM0mm7NPfWigXbd7] - [cmd: Ping] - [args: []] - [kwargs: {}]
+## ~3861~ [ Sending to AMI   54 bytes -- 2016-01-15T22:27:01.793910 ]:
+Action: Ping
+ActionID: 2016-01-15T22:27:01.790398
+
+
+## ~3861~ [ Received from AMI   19 bytes -- 2016-01-15T22:27:01.806153 ]:
+Response: Success
+
+## ~3861~ [ Received from AMI   82 bytes -- 2016-01-15T22:27:01.818358 ]:
+ActionID: 2016-01-15T22:27:01.790398
+Ping: Pong
+Timestamp: 1452896830.345783
+
+
+## ~3861~ Killing I/O workers softly: 2016-01-15T22:27:09.153969
+## ~3861~ Terminating connection: 127.0.0.2:5038

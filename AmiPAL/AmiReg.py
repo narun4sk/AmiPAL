@@ -1,40 +1,63 @@
 #!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 """
-Created on Tue Sep 22 11:22:18 2015
+# Ami Event Registry
 
-@author: Narunas K.
+## Part of the AmiPAL project ~:~ https://github.com/narunask/AmiPAL
 
-Part of the AmiPAL project :-: https://github.com/narunask/AmiPAL
+Redistribution and use in source and binary forms, with or without modification, are permitted
+provided that the following conditions are met:
 
-LICENSE :-: BSD 3-Clause License :-: https://opensource.org/licenses/BSD-3-Clause
+1. Redistributions of source code must retain the above copyright notice, this list of conditions
+   and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice, this list of
+   conditions and the following disclaimer in the documentation and/or other materials provided
+   with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its contributors may be used to
+   endorse or promote products derived from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
+CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF
+USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
+ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+Copyright (c) 2016 Narunas K. All rights reserved.
 """
 
-import gc
-from datetime import datetime
 from cStringIO import StringIO
 from collections import Sequence
 from collections import OrderedDict as od
-from collections import namedtuple as nt
 
 
 class AmiLine(object):
     """
     Ami Line Object.
     """
-    __slots__ = ("_nl", "_line", "_line_tuple", "_fake")
+    __slots__ = ("nl", "_line", "linet", "_fake")
+
+    # New line terminator
+    nl = "\r\n"
+
     def __init__(self, line_string):
+        # Ensure input line is string
         self._line = str(line_string)
-        line_tuple = tuple(x.strip() for x in self._line.split(':', 1))
-        # Validate in case we receive only "nl" or partial attribute line
-        if not any(line_tuple):
-            self._line_tuple = None
-        else: self._line_tuple = line_tuple
+        # Convert line string into attribute, value tuple
+        lt = tuple(x.strip() for x in self._line.split(':', 1))
+        # Validate in case we received "nl" or incomplete attribute line
+        if not any(lt):
+            self.linet = None
+        else: self.linet = lt
 
     @classmethod
     def fake(cls, val=None):
         """
-        Create fake event line.
+        Create fake event line. Useful if you want to add event id or similar.
         """
         self = cls.__new__(cls)
         if isinstance(val, (dict, od)):
@@ -48,28 +71,6 @@ class AmiLine(object):
         return self
 
     @property
-    def nl(self):
-        """
-        New line terminator.
-        """
-        nl = "\r\n"
-        if not hasattr(self, "_nl"):
-            return nl
-        elif not self._nl:
-            return nl
-        else:
-            return self._nl
-
-    @nl.setter
-    def nl(self, val="\r\n"):
-        self._nl = val
-
-    @nl.deleter
-    def nl(self):
-        if hasattr(self, "_nl"):
-            delattr(self, "_nl")
-
-    @property
     def is_nl(self):
         """
         Return True if line is terminated correctly.
@@ -79,53 +80,57 @@ class AmiLine(object):
     @property
     def s(self):
         """
-        Original line string.
+        Original line in string format.
         """
         if hasattr(self, "_fake"):
             f = self._fake
-            return str("%s: %s%s" % (f[0], f[1], self.nl))
+            return str("{0}: {1}{2}".format(f[0], f[1], self.nl))
         return self._line
 
     @property
     def a(self):
-        """Attribute"""
+        """
+        Line attribute part.
+        """
         if hasattr(self, "_fake"):
             return self._fake[0]
         try:
-            return self._line_tuple[0]
+            return self.linet[0]
         except TypeError:
             return None
 
     @property
     def v(self):
-        """Value"""
+        """
+        Attribute's value part.
+        """
         if hasattr(self, "_fake"):
             return self._fake[1]
         try:
-            return self._line_tuple[1]
+            return self.linet[1]
         except (TypeError, IndexError):
             return None
 
     @property
     def t(self):
         """
-        Tuple representation.
+        Line attribute, value tuple view.
         """
         if hasattr(self, "_fake"):
             return self._fake
-        if self._line_tuple and any(self._line_tuple):
+        if self.linet and any(self.linet):
             return self.a, self.v
         return None
 
     @property
     def d(self):
         """
-        Dict representation.
+        Line dict view.
         """
         if hasattr(self, "_fake"):
             f = self._fake
             return {f[0]: f[1]}
-        if self._line_tuple and any(self._line_tuple):
+        if self.linet and any(self.linet):
             return {self.a: self.v}
         return None
 
@@ -135,13 +140,18 @@ class AmiEvent(Sequence):
     Ami Event Object.
     """
     __slots__ = ("_event", "_extra")
+
     def __init__(self, event=""):
-        self._event = self._validator(event)
+        """
+        Cast Ami event view to the list of tuples, list of dicts or the ordered dict.
+        Must be initialised with the AmiLine instances sequence.
+        """
+        self._event = self.validate(event)
 
     @staticmethod
-    def _validator(val):
-        if not val or not isinstance(val, (list, tuple)):
-            raise ValueError("Supplied argument must be list or tuple!")
+    def validate(val):
+        if not isinstance(val, Sequence):
+            raise ValueError("Supplied argument must be sequence.")
         if not all(map(lambda x: isinstance(x, AmiLine), val)):
             raise ValueError("All items from the iterable must be AmiLine instances!")
         return val
@@ -157,39 +167,43 @@ class AmiEvent(Sequence):
             return len(self._event + self._extra)
         return len(self._event)
 
-    # Custom methods
+    ## - Custom methods - ##
     def __repr__(self):
-        """
-        Represent Ami events as tuples.
-        """
         return str(self.t)
+
+    @property
+    def e(self):
+        return self._event
 
     @property
     def t(self):
         """
-        Tuple representation.
+        View Ami event as tuple of tuples.
         """
+        event = self._event
         if hasattr(self, "_extra"):
-            return tuple(line.t for line in (self._event + self._extra))
-        return tuple(line.t for line in self._event)
+            event += self._extra
+        return tuple(line.t for line in event)
 
     @property
     def d(self):
         """
-        Dict representation.
+        View Ami event as tuple of dicts.
         """
+        event = self._event
         if hasattr(self, "_extra"):
-            return tuple(line.d for line in (self._event + self._extra))
-        return tuple(line.d for line in self._event)
+            event += self._extra
+        return tuple(line.d for line in event)
 
     @property
     def od(self):
         """
-        Ordered Dict representation.
+        View Ami event as ordered dict (most useful).
         """
+        event = self._event
         if hasattr(self, "_extra"):
-            return od(line.t for line in (self._event + self._extra))
-        return od(line.t for line in self._event)
+            event += self._extra
+        return od(line.t for line in event)
 
     @property
     def extra(self):
@@ -201,11 +215,11 @@ class AmiEvent(Sequence):
         return None
 
     @extra.setter
-    def extra(self, val=None):
-        self._extra = self._validator(val)
+    def set_extra(self, val=None):
+        self._extra = self.validate(val)
 
     @extra.deleter
-    def extra(self, val=None):
+    def del_extra(self, val=None):
         if hasattr(self, "_extra"):
             delattr(self, "_extra")
 
@@ -215,11 +229,14 @@ class AmiStrm(object):
     Ami Stream Object.
     """
     __slots__ = ("nl", "_stream", "_lines", "_lines_raw")
+
+    # New line terminator
+    nl = "\r\n"
+
     def __init__(self, stream="", tail=None):
         """
-        Represent Ami text stream as list of Python objects.
+        Cast Ami text stream to the list of Python objects.
         """
-        self.nl = "\r\n"
         if stream == "":
             raise ValueError("stream argument cannot be empty!")
         if tail:
@@ -228,16 +245,9 @@ class AmiStrm(object):
             self._stream = str(stream)
 
     @property
-    def _id(self):
-        """
-        Use iso8601 datetime as internal ID.
-        """
-        return datetime.now().isoformat()
-
-    @property
     def stream(self):
         """
-        Return raw Ami stream we are currently working with.
+        Return raw Ami text stream as it was provided.
         """
         if hasattr(self, "_stream"): return self._stream
 
@@ -263,17 +273,15 @@ class AmiStrm(object):
     def chunks(self):
         """
         Split list of lines into chunks.
-        Return only full chunks (blocks of stream terminated by x2 nl)
+        Return only full chunks (blocks of stream terminated by x2 nl).
         """
         tmp, chunks = [], []
         for line in self.lines:
             if line:
                 # Cast lines to AmiLine objects
                 tmp.append(AmiLine(line))
-            else:
-                if tmp:
-                    evid = AmiLine.fake({"areg_evid": self._id})
-                    tmp.append(evid)
+            else: # Event terminator was found (2x nl)
+                if tmp: # If event was not empty
                     chunks.append(tuple(tmp))
                 tmp = []
         return chunks
@@ -298,268 +306,72 @@ class AmiStrm(object):
     @property
     def events(self):
         """
-        Convert self.chunks to the list of AmiEvent objects.
+        Convert self.chunks to the generator of AmiEvent objects.
         """
-        return [ AmiEvent(chunk) for chunk in self.chunks ]
+        return ( AmiEvent(chunk) for chunk in self.chunks )
 
 
 class AmiReg(object):
     """
-    Ami Event Registry (Container).
+    Ami Event Registry.
     """
-    __slots__ = ("_id", "_id0", "_tail", "_stream", "_events", "_dt")
+    __slots__ = ("_tail", "_stream")
+
     def __init__(self):
-        self._id = None
-        self._id0 = None
+        """
+        Feed Ami text stream chunks to this object, override 'onEvent' method to attach a callback.
+        """
         self._tail = None
-        self._stream = None
-        self._events = {e: [] for e in self.elist()}
-        self._dt = nt("_dt", ["id", "data"], rename=True, verbose=False)
+        self._stream = None # Temporary AmiStrm container
 
+    def onEvent(self, event):
+        """
+        Override this method to attach your callback. event = AmiEvent instance.
+        """
+        pass #print event.d
 
-    @staticmethod
-    def elist(e=None):
-        """
-        List of searchable events.
-        """
-        ami = ['AsteriskCallManager/1.1']
-        ami_commands = ["WaitEvent", "QueueReset", "QueueReload", "QueueRule", "QueuePenalty",
-        "QueueLog", "QueuePause", "QueueRemove", "QueueAdd", "QueueSummary", "QueueStatus",
-        "Queues", "PCIMixMonitorMu", "MixMonitorMute", "VoicemailUsersL", "PlayDTMF", "MuteAudio",
-        "MeetmeList", "MeetmeUnmute", "MeetmeMute", "IAXregistry", "IAXnetstats", "IAXpeerlist",
-        "IAXpeers", "DAHDIRestart", "DAHDIShowChanne", "DAHDIDNDoff", "DAHDIDNDon", "DAHDIDialOffhoo",
-        "DAHDIHangup", "DAHDITransfer", "AgentPause", "AgentLogoff", "Agents", "LocalOptimizeAw",
-        "SIPnotify", "SIPshowregistry", "SIPqualifypeer", "SIPshowpeer", "SIPpeers", "AGI",
-        "PCIUnpauseMonit", "PCIPauseMonitor", "UnpauseMonitor", "PauseMonitor", "ChangeMonitor",
-        "StopMonitor", "Monitor", "DBDelTree", "DBDel", "DBPut", "DBGet", "Bridge", "Park",
-        "ParkedCalls", "ShowDialPlan", "AOCMessage", "ModuleCheck", "ModuleLoad", "CoreShowChannel",
-        "Reload", "CoreStatus", "CoreSettings", "UserEvent", "UpdateConfig", "SendText", "ListCommands",
-        "MailboxCount", "MailboxStatus", "AbsoluteTimeout", "ExtensionState", "Command", "Originate",
-        "Atxfer", "Redirect", "ListCategories", "CreateConfig", "Status", "GetConfigJSON", "GetConfig",
-        "Getvar", "Setvar", "Ping", "Hangup", "Challenge", "Login", "Logoff", "Events", "DataGet"]
-        common_events = ["Agentcallbacklogin", "Agentcallbacklogoff", "AgentCalled", "AgentComplete",
-        "AgentConnect", "AgentDump", "Agentlogin", "Agentlogoff", "QueueMemberAdded", "QueueMemberPaused",
-        "QueueMemberStatus", "Cdr", "Dial", "ExtensionStatus", "MusicOnHold", "Join", "Leave", "Link",
-        "MeetmeJoin", "MeetmeLeave", "MeetmeStopTalking", "MeetmeTalking", "MessageWaiting",
-        "Newcallerid", "Newchannel", "Newexten", "ParkedCall", "Rename", "SetCDRUserField", "Unlink",
-        "UnParkedCall", "Alarm", "AlarmClear", "DNDState", "LogChannel", "PeerStatus", "Registry",
-        "Shutdown", "VarSet"]
-        custom_known = ["Newstate", "NewCallerid", "NewCallerid", "Newstate", "Newstate",
-        "MonitorStart", "Newstate", "NewAccountCode", "RTCPReceived", "MonitorStop", "FullyBooted",
-        "RTCPReceived", "RTCPReceived", "RTCPSent", "RTCPSent", "RTCPReceived", "RTCPReceived",
-        "RTCPSent", "RTCPSent", "MonitorStop"]
-        list_end = ["PeerlistComplete", "AgentsComplete"]
-        areg_alien = ["areg_alien"]
-        events = tuple(ami + sorted(ami_commands + common_events + custom_known + list_end) + areg_alien)
-        if not e: return events
-        return e in events
-
-    @staticmethod
-    def evid_sort(lst=None):
-        """
-        Sort by areg_evid field.
-        """
-        if not lst or not isinstance(lst, (list, tuple)):
-            raise ValueError("Supplied argument must be list or tuple!")
-        return sorted(lst, key=lambda x: x.od.get("areg_evid"))
-
-    @property
-    def id(self):
-        """
-        Use iso8601 datetime as internal ID.
-        """
-        return datetime.now().isoformat()
-
-    def put_str(self, stream=None, id=None):
+    def feed(self, stream=None, id=None):
         """
         Collect Ami stream and parse it.
         """
-        self._id0 = self._id              # Old id
-        self._id = id if id else self.id  # New id
         if not stream or not isinstance(stream, str):
-            raise ValueError("stream argument must be unempty string!")
+            raise ValueError("Input is expected to be non empty string.")
         if self._tail:
             self._stream = AmiStrm(stream=stream, tail=self._tail)
         else:
             self._stream = AmiStrm(stream=stream)
         # Update tail
-        self._tail = self._stream.tail
-        # Now parse and store events
-        self._put_events()
+        self._tail = self.str.tail
+        # Call onEvent for each event in the stream
+        for event in self.events:
+            self.onEvent(event)
 
     @property
-    def get_str(self):
+    def str(self):
         """
-        Return latest AmiStrm Object.
+        Return latest AmiStrm object.
         """
-        dt = self._dt
-        if self._stream: return dt(self._id, self._stream)
-        return None
+        return self._stream
+
+    @property
+    def events(self):
+        """
+        Return parsed events generator in this stream chunk.
+        """
+        return self.str.events
 
     @property
     def tail(self):
         """
         Return tail of the latest AmiStrm Object if any.
         """
-        dt = self._dt
-        if self._tail: return dt(self._id, self._tail)
-        return None
+        return self._tail
 
-    @property
-    def _get_events(self):
-        """
-        Parse Ami events from the supplied Ami stream.
-        """
-        events = []
-        id, data = self.get_str
-        for event in data.events:
-            evt = event.od.get("Event", None)
-            if evt and self.elist(evt):
-                k_line = AmiLine.fake({"areg_tag": "known"})
-            else:
-                k_line = AmiLine.fake({"areg_tag": "alien"})
-            id_line = AmiLine.fake({"areg_id": id})
-            event.extra = k_line, id_line
-            events.append(event)
-        return tuple(events)
-
-    def _put_events(self):
-        """
-        Store Ami events in the buckets.
-        """
-        # If new id is the same as the old one - there's nothing to update
-        if self._id0 == self._id:
-            return None
-        events = self._get_events
-        for event in events:
-            areg_tag = event.od.get("areg_tag")
-            if areg_tag == "alien":
-                self._events["areg_alien"].append(event)
-            else:
-                e = event.od.get("Event")
-                self._events[e].append(event)
-        # Update old id to prevent record doubling
-        self._id0 = self._id
-
-    @property
-    def events(self):
-        """
-        Return not empty event buckets.
-        """
-        if self._events:
-            return {k:v for k,v in self._events.iteritems() if v }
-        return None
-
-    def get_events(self):
-        """
-        Dummy method to be used in the AutoProxy object only.
-        """
-        return self.events
-
-    def by_evid(self, evid=None, evt=None):
-        """
-        Find events by areg_evid, optionally search in the single evt group.
-        """
-        if not evid: return None
-        if evt:
-            if self.elist(evt):
-                return tuple(event for event in self.events[evt] \
-                                   if event.od.get('areg_evid') == evid)
-        else:
-            return tuple(event for egroup in self.events.values() \
-                               for event in egroup if event.od.get('areg_evid') == evid)
-
-    def sweep_le(self, evid=None, evt=None):
-        """
-        Remove events where areg_evid is less than evid,
-        optionally search in the single evt group.
-        """
-        if not evid: return None
-        if evt and self.elist(evt):
-            for event in self.events[evt]:
-                if event.od.get('areg_evid') < evid:
-                    index = self.events[evt].index(event)
-                    del self.events[evt][index]
-        else:
-            for egroup, events in self.events.iteritems():
-                for event in events:
-                    if event.od.get('areg_evid') < evid:
-                        index = self.events[egroup].index(event)
-                        del self.events[egroup][index]
-        gc.collect() # collect garbage
-
-    def drop_all(self, ex=None):
-        """
-        Drop all event groups excluding those in ex=[].
-        """
-        if ex and not isinstance(ex, (list, tuple)):
-            raise ValueError("Supplied argument must be list or tuple!")
-        if ex:
-            groups = [x for x in self.events.keys() if x not in ex]
-        else:
-          groups = self.events.keys()
-        for g in groups:
-            self._events.update({g:[]})
-        gc.collect() # collect garbage
-
-    def drop(self, lst=None):
-        """
-        Drop only those event groups which are listed in the lst=[] (drop_all opposite).
-        """
-        if not lst or not isinstance(lst, (list, tuple)):
-            raise ValueError("Supplied argument must be list or tuple!")
-        keys = self.events.keys()
-        groups = [x for x in lst if x in keys]
-        for g in groups:
-            self._events.update({g:[]})
-        gc.collect() # collect garbage
-
-    def by_value(self, val=None, evt=None, part=False):
-        """
-        Find events by attribute value, optionally search in the single evt group.
-        When part=True, use partial match.
-        """
-        if not val: return None
-        if evt and self.elist(evt):
-            if part:
-                return tuple(event for event in self.events[evt] \
-                                   for e in event if all([e.v, val in e.v]))
-            else:
-                return tuple(event for event in self.events[evt] \
-                                   for e in event if e.v == val)
-        else:
-            if part:
-                return tuple(event for egroup in self.events.values() \
-                                   for event in egroup for e in event if all([e.v, val in e.v]))
-            else:
-                return tuple(event for egroup in self.events.values() \
-                                   for event in egroup for e in event if e.v == val)
-
-    def by_attr(self, attr=None, evt=None, part=False):
-        """
-        Find events by attribute name, optionally search in the single evt group.
-        When part=True, use partial match.
-        """
-        if not attr: return None
-        if evt and self.elist(evt):
-            if part:
-                return tuple(event for event in self.events[evt] \
-                                   for e in event if attr in e.a)
-            else:
-                return tuple(event for event in self.events[evt] \
-                                   for e in event if e.a == attr)
-        else:
-            if part:
-                return tuple(event for egroup in self.events.values() \
-                                   for event in egroup for e in event if attr in e.a)
-            else:
-                return tuple(event for egroup in self.events.values() \
-                                   for event in egroup for e in event if e.a == attr)
 
 
 if __name__ == "__main__":
-    #with open('big.log', 'r') as f:
-    with open('testing.log', 'r') as f:
+    with open('big.log', 'r') as f:
+    #with open('testing.log', 'r') as f:
         line_lst = f.readlines()
         line_str = ''.join( x for x in line_lst if x != '\n' )
         s1 = line_str[100:300]
@@ -567,4 +379,4 @@ if __name__ == "__main__":
         strm1 = AmiStrm(s1)
         strm2 = AmiStrm(s2)
         reg = AmiReg()
-        reg.put_str(line_str)
+        reg.feed(line_str)
